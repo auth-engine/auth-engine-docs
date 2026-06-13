@@ -185,7 +185,7 @@ Images: Docker Hub `qniranjan01/authengine` and `qniranjan01/authengine-dashboar
 docker exec authengine-api auth-engine migrate
 ```
 
-Run once per release after pulling a new API image.
+Run once per release after pulling a new API image. The API verifies Postgres connectivity on startup but does **not** run `create_all` — Alembic owns the schema. After migrate, seed with `auth-engine-data all` (see auth-engine-data repo); use `--create-tables` only for local dev without Alembic.
 
 ## 5. Phase 4 — nginx and TLS
 
