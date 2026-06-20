@@ -115,7 +115,9 @@ sudo nano /opt/authengine/.env
 sudo chmod 600 /opt/authengine/.env
 ```
 
-Required variables: `SECRET_KEY`, `JWT_SECRET_KEY`, `POSTGRES_URL`, `MONGODB_URL`, `REDIS_URL`, `APP_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `SUPERADMIN_*`, `EMAIL_*`, `SMS_*`. Full list in `compose/env.prod.example`.
+Required variables for the API compose stack: `SECRET_KEY`, `JWT_SECRET_KEY`, `POSTGRES_URL`, `MONGODB_URL`, `REDIS_URL`, `APP_URL`, `DASHBOARD_URL`, `CORS_ORIGINS`, `AWS_REGION`. Full list in `compose/env.prod.example`.
+
+Super admin and platform-tenant email/SMS/OAuth/password policy are **not** in the API `.env` — configure them via **[auth-engine-data](https://github.com/auth-engine/auth-engine-data)** after migrate (`auth-engine-data all`; see that repo's `.env.example`).
 
 | Variable | Production value |
 |----------|------------------|
@@ -129,31 +131,35 @@ Required variables: `SECRET_KEY`, `JWT_SECRET_KEY`, `POSTGRES_URL`, `MONGODB_URL
 
 ### 4.1.1 Notifications — Email OTP (SES) and SMS OTP (Android gateway)
 
-AuthEngine sends email (verification, password reset) and SMS (phone OTP) through pluggable providers selected by `EMAIL_PROVIDER` / `SMS_PROVIDER`.
+AuthEngine sends email (verification, password reset) and SMS (phone OTP) using **tenant config stored in Postgres** (platform tenant for system mail/SMS). Configure providers in the dashboard, or seed once from `auth-engine-data`:
 
-**Email — Amazon SES** (`EMAIL_PROVIDER=ses`)
+```bash
+# auth-engine-data/.env.local — optional vars; see auth-engine-data/.env.example
+uv run auth-engine-data platform-config
+```
 
-| Variable | Value |
-|----------|-------|
-| `EMAIL_PROVIDER` | `ses` |
-| `EMAIL_SENDER` | `noreply@authengine.org` (must be a verified SES identity) |
-| `AWS_REGION` | `ap-south-1` |
-| `EMAIL_PROVIDER_API_KEY` | Leave **blank** to use the EC2 IAM role (recommended). Otherwise `"ACCESS_KEY_ID:SECRET_ACCESS_KEY"`. |
+**Email — Amazon SES** (platform tenant)
+
+| Setting | Typical value |
+|---------|---------------|
+| Provider | `ses` |
+| From address | `noreply@authengine.org` (verified SES identity) |
+| Credentials | Blank → EC2 IAM role (`AWS_REGION=ap-south-1` on the API). Or API key in dashboard / `EMAIL_PROVIDER_API_KEY` in seed env. |
 
 Setup:
 1. `terraform apply` in `terraform/` creates the SES domain identity, Easy DKIM, a custom MAIL FROM, and grants the EC2 role `ses:SendEmail` (see `terraform/ses.tf`).
 2. Add the DNS records from `terraform output ses_dns_records` (TXT `_amazonses`, 3 DKIM CNAMEs, MAIL FROM MX/SPF) at your DNS host. SES flips to **Verified** automatically.
 3. New SES accounts are in the **sandbox** (can only send to verified addresses). Request production access: `terraform output ses_production_access_cli`, or set `request_ses_production_access = true`.
 
-**SMS — Android phone + SIM gateway** (`SMS_PROVIDER=android_gateway`)
+**SMS — Android phone + SIM gateway** (platform tenant)
 
 Runs the open-source "SMS Gateway for Android" app on a phone with a SIM; OTPs are sent off the existing SIM (no per-message fee).
 
-| Variable | Value |
-|----------|-------|
-| `SMS_PROVIDER` | `android_gateway` |
-| `SMS_GATEWAY_URL` | **Cloud** (required on EC2): `https://api.sms-gate.app/3rdparty/v1` · **Local** (same Wi-Fi only): `http://<phone-lan-ip>:8080` |
-| `SMS_GATEWAY_USERNAME` / `SMS_GATEWAY_PASSWORD` | Basic-auth credentials shown in the app |
+| Setting | Typical value |
+|---------|---------------|
+| Provider | `android_gateway` |
+| Gateway URL | **Cloud** (required on EC2): `https://api.sms-gate.app/3rdparty/v1` · **Local** (same Wi-Fi only): `http://<phone-lan-ip>:8080` |
+| Username / password | Basic-auth credentials from the app |
 
 Notes:
 - On EC2 you **must** use Cloud mode — the server cannot reach a phone's private LAN IP.
@@ -185,7 +191,7 @@ Images: Docker Hub `qniranjan01/authengine` and `qniranjan01/authengine-dashboar
 docker exec authengine-api auth-engine migrate
 ```
 
-Run once per release after pulling a new API image. The API verifies Postgres connectivity on startup but does **not** run `create_all` — Alembic owns the schema. After migrate, seed with `auth-engine-data all` (see auth-engine-data repo); use `--create-tables` only for local dev without Alembic.
+Run once per release after pulling a new API image. The API verifies Postgres connectivity on startup but does **not** run `create_all` — Alembic owns the schema. After migrate, seed with `auth-engine-data all` (roles, super admin, optional platform config — see [auth-engine-data](https://github.com/auth-engine/auth-engine-data)); use `--create-tables` only for local dev without Alembic.
 
 ## 5. Phase 4 — nginx and TLS
 

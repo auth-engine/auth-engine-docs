@@ -242,7 +242,7 @@ Path includes `tenant_id`. Guards use PBAC permissions scoped to that tenant.
 
 | Role | Level | Scope |
 |------|-------|-------|
-| `SUPER_ADMIN` | 100 | Platform (bootstrap only) |
+| `SUPER_ADMIN` | 100 | Platform (seed only — `auth-engine-data`) |
 | `PLATFORM_ADMIN` | 80 | Platform |
 | `TENANT_OWNER` | 60 | Tenant |
 | `TENANT_ADMIN` | 50 | Tenant |
