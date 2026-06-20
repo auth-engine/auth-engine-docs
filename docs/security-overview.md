@@ -137,7 +137,7 @@ Permissions are strings (e.g. `tenant.users.manage`), not role names. Guards:
 | TENANT_MANAGER | 30 | 0–29 |
 | TENANT_USER | 10 | 0–9 |
 
-`SUPER_ADMIN` is seeded at bootstrap and should not be assigned manually.
+`SUPER_ADMIN` is seeded by `auth-engine-data` and should not be assigned manually.
 
 ## 10. Rate limiting
 

@@ -55,17 +55,16 @@ Images build from GitHub (`auth-engine/auth-engine`, `auth-engine/auth-engine-da
 docker exec authengine-api auth-engine migrate
 ```
 
-RBAC roles and the super admin are **no longer seeded on startup**. Seeding now
-lives in the separate [`auth-engine-data`](https://github.com/auth-engine/auth-engine-data) repo. After
-migrations, run it once against the same database (using the same
-`SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` and `POSTGRES_URL`):
+RBAC roles, the super admin, and optional platform-tenant config (email, SMS, social OAuth, password policy) are **not** seeded on API startup. Seeding lives in the separate [`auth-engine-data`](https://github.com/auth-engine/auth-engine-data) repo. After migrations, run it once against the same database:
 
 ```bash
 cd auth-engine-data
-cp .env.example .env.local   # fill in POSTGRES_URL, secrets, SUPERADMIN_*
+cp .env.example .env.local   # POSTGRES_URL, SECRET_KEY (match API), SUPERADMIN_*
 uv sync
 uv run auth-engine-data all
 ```
+
+`auth-engine-data` uses its own `.env.local` (independent from `auth-engine/.env.local`). Optional `EMAIL_*`, `SMS_*`, and OAuth vars for the platform tenant are documented in `auth-engine-data/.env.example`.
 
 ---
 
@@ -79,13 +78,7 @@ uv run auth-engine-data all
 
 ## 6. OAuth providers (optional)
 
-Set `GOOGLE_*`, `GITHUB_*`, or `MICROSOFT_*` in `.env`. Local redirect URIs:
-
-```text
-http://localhost:8000/api/v1/auth/oauth/google/callback
-http://localhost:8000/api/v1/auth/oauth/github/callback
-http://localhost:8000/api/v1/auth/oauth/microsoft/callback
-```
+Platform social login (Google, AuthEngine OIDC) is configured on the **platform tenant** — seed once with `auth-engine-data platform-config` (see `auth-engine-data/.env.example`) or set providers in the dashboard. Per-tenant OAuth is managed in the dashboard under tenant settings.
 
 ---
 
