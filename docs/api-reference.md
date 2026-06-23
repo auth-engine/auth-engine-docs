@@ -65,6 +65,24 @@ author: Niranjan
 | `POST` | `/auth/verify-phone` | Verify phone OTP |
 | `POST` | `/auth/request-token` | Request verification token |
 | `POST` | `/auth/select-tenant` | Exchange token for tenant-scoped session |
+| `GET` | `/auth/auth-config` | Public login methods for a tenant (no auth) |
+
+#### `GET /auth/auth-config`
+
+Returns which sign-in methods the login UI should show. Used by the dashboard and customer integrations.
+
+| Query | Required | Description |
+|-------|----------|-------------|
+| `tenant_id` | No | Tenant UUID. Omit for **platform login** — API resolves the canonical platform tenant. |
+
+**Response:**
+
+```json
+{
+  "tenant_id": "uuid",
+  "allowed_methods": ["email_password", "magic_link", "social_provider", "passkey"]
+}
+```
 
 ### Magic link
 

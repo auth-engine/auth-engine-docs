@@ -1,184 +1,251 @@
 ---
 title: Deployment
-description: Production deployment on AWS EC2 with K3s, Rancher, and Helm.
+description: Deploy AuthEngine on a cloud VM (AWS or any provider) or a local laptop VM with Cloudflare Tunnel.
 author: Niranjan
 ---
 
 # Deployment Guide
 
-Production runs on a **single AWS EC2 instance** with **K3s**, **Rancher**, and the **Helm chart** in `auth-engine-infra/helm/authengine`. Postgres, MongoDB, Redis, the API, and the dashboard all run as Kubernetes workloads. TLS is handled by **cert-manager** on the cluster ingress.
+AuthEngine production runs on a **single-node K3s cluster** with **Rancher**, **cert-manager**, and the **Helm chart** in `auth-engine-infra/helm/authengine`. Postgres, MongoDB, Redis, the API, and the dashboard are in-cluster workloads.
 
-!!! abstract "Deployment sequence"
-    Complete phases **in order**:
+Choose one path:
 
-    **1** Terraform → **2** DNS → **3** K3s + Rancher → **4** Helm install → **5** Seed data → **6** OAuth URIs → **7** CI/CD (build) → **8** Docs site → **9** Verify
+| Path | Best for | Public IP | DNS |
+|------|----------|-----------|-----|
+| [**Cloud VM**](#cloud-vm-aws-or-any-provider) | Production, staging | Yes (Elastic IP / static IP) | A records → VM IP |
+| [**Local VM**](#local-vm-laptop--cloudflare-tunnel) | Laptop lab, demos | No | **Cloudflare Tunnel** |
+
+!!! abstract "Quick start scripts"
+    ```bash
+    cd auth-engine-infra
+
+    # Laptop lab (Multipass + Cloudflare Tunnel)
+    ./scripts/deploy-local-vm.sh all
+
+    # Cloud VM (AWS Terraform + public DNS)
+    ./scripts/deploy-aws.sh all
+    ```
+
+    See [`auth-engine-infra/scripts/README.md`](https://github.com/auth-engine/auth-engine-infra/blob/main/scripts/README.md).
 
 ---
 
-## Platform URLs (production)
+## Hardware requirements
 
-| Host | Role | Backend |
-|------|------|---------|
-| [authengine.org](https://authengine.org) | Product home | Ingress redirect (optional) |
-| [api.authengine.org](https://api.authengine.org) | REST API, Swagger, `/.well-known` | `api` Deployment → port 8000 |
-| [auth.authengine.org](https://auth.authengine.org) | OIDC login UI and IdP endpoints | Same `api` Deployment |
-| [app.authengine.org](https://app.authengine.org) | Admin dashboard | `dashboard` Deployment → port 3000 |
-| [rancher.authengine.org](https://rancher.authengine.org) | Cluster management UI | Rancher Server |
-| [docs.authengine.org](https://docs.authengine.org) | This documentation | MkDocs on GitHub Pages |
+Single-node K3s + Rancher + AuthEngine (API, dashboard, Postgres, MongoDB, Redis):
 
-## 1. Architecture overview
+| Profile | vCPU | RAM | Disk | Example |
+|---------|------|-----|------|---------|
+| **Lab / dev** | 4 | 8 GB | 40 GB | Multipass `4 CPU / 8G`, AWS `t3.large` |
+| **Production** | 4 | 16 GB | 80 GB | AWS `t4g.xlarge`, Hetzner `cpx31`, GCP `e2-standard-4` |
+| **Minimum (tight)** | 2 | 4 GB | 30 GB | May OOM during seed Job — not recommended |
 
-| Layer | Provider | Notes |
-|-------|----------|-------|
-| Compute | AWS EC2 (`t4g.xlarge` recommended) | Single node; K3s + Rancher + workloads |
-| API | Kubernetes `api` Deployment | Image `qniranjan01/authengine:latest` |
-| Dashboard | Kubernetes `dashboard` Deployment | Image `qniranjan01/authengine-dashboard:latest` |
-| PostgreSQL | In-cluster StatefulSet | Helm chart `postgres` |
-| MongoDB | In-cluster StatefulSet | Helm chart `mongodb` |
-| Redis | In-cluster StatefulSet | Helm chart `redis` |
-| TLS / routing | nginx Ingress + cert-manager | Managed via Rancher or Helm |
-| Email | **Resend** (recommended) | API key in Helm values / platform seed |
-| Docs | GitHub Pages | MkDocs build from **auth-engine-docs** |
+- **Architecture:** ARM64 (AWS Graviton `t4g`) and x86_64 both work.
+- **Network:** ports **80** and **443** open on the VM firewall (cloud path only).
+- **Local dev** without Kubernetes: use Docker Compose in `auth-engine-infra/compose/` — see [Quick Start](quick-start.md).
+
+```bash
+./scripts/deploy-aws.sh specs      # cloud
+./scripts/deploy-local-vm.sh specs # local VM
+```
+
+---
+
+## Platform URLs
+
+Replace `authengine.org` with your domain in `helm/authengine/local-values.yaml` or `prod-values.yaml`.
+
+| Host | Role |
+|------|------|
+| `api.<domain>` | REST API, Swagger, `/.well-known` |
+| `auth.<domain>` | OIDC login UI (same API deployment) |
+| `app.<domain>` | Admin dashboard |
+| `rancher.<domain>` | Rancher cluster UI |
+
+---
+
+## Cloud VM (AWS or any provider)
+
+Works on **any cloud** that gives you a Linux VM with a public IP: AWS EC2, GCP Compute Engine, Azure VM, Hetzner, DigitalOcean, Oracle Cloud, etc.
+
+### Architecture
 
 ```mermaid
 flowchart LR
     users["Users"]
-    ingress["Ingress + cert-manager"]
-    api["api :8000"]
-    fe["dashboard :3000"]
-    pg["Postgres"]
-    mongo["MongoDB"]
-    redis["Redis"]
+    dns["DNS A records"]
+    vm["Cloud VM"]
+    k3s["K3s + Traefik"]
+    apps["API + Dashboard"]
+  dbs["Postgres + Mongo + Redis"]
 
-    users --> ingress
-    ingress --> api
-    ingress --> fe
-    api --> pg
-    api --> redis
-    api --> mongo
+    users --> dns --> vm --> k3s --> apps --> dbs
 ```
 
-**Local development** still uses Docker Compose in `auth-engine-infra/compose/` — that path is separate from production.
-
-## 2. Phase 1 — Terraform (EC2 only)
-
-Terraform provisions **one EC2 instance** with an Elastic IP and SSM access. It does **not** create RDS, SES, or ECR.
-
-```bash
-cd auth-engine-infra/terraform
-cp terraform.tfvars.example terraform.tfvars
-# Set ec2_instance_type = "t4g.xlarge" (or t4g.large minimum)
-terraform init
-terraform plan
-terraform apply
-```
-
-Or use the helper script:
+### Option A — AWS (Terraform included)
 
 ```bash
 cd auth-engine-infra
-./deploy/auth-engine-deploy.sh plan
-./deploy/auth-engine-deploy.sh apply
+
+# 1. Configure Terraform
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+# Set ec2_instance_type = "t4g.xlarge" for production
+
+# 2. Full guided deploy
+./scripts/deploy-aws.sh all
 ```
 
-### Resources created
-
-- VPC with public subnet
-- EC2 instance (Amazon Linux 2023 ARM) + Elastic IP
-- Security group (HTTP/HTTPS + optional SSH)
-- IAM role with `AmazonSSMManagedInstanceCore` (Session Manager)
-
-Key outputs: `ec2_public_ip`, `ec2_instance_id`, `suggested_urls`, `rancher_setup_instructions`.
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `aws_region` | `ap-south-1` | Region |
-| `ec2_instance_type` | `t4g.micro` | **Use `t4g.xlarge` in production** (K3s + DBs + apps) |
-| `root_domain` | `authengine.org` | DNS reference |
-
-**GitHub Actions:** `auth-engine-infra · Terraform Plan` → review → `auth-engine-infra · Terraform Apply` (manual `workflow_dispatch`).
-
-## 3. Phase 2 — DNS
-
-Point application hosts at the EC2 Elastic IP from `terraform output ec2_public_ip`:
-
-| Host | Type | Target |
-|------|------|--------|
-| `api` | A | EC2 Elastic IP |
-| `auth` | A | Same Elastic IP |
-| `app` | A | Same Elastic IP |
-| `rancher` | A | Same Elastic IP |
-| `docs` | CNAME | `auth-engine.github.io` (GitHub Pages) |
+Or step by step:
 
 ```bash
-./deploy/auth-engine-deploy.sh dns
+./scripts/deploy-aws.sh plan      # terraform plan
+./scripts/deploy-aws.sh apply     # create EC2 + Elastic IP
+./scripts/deploy-aws.sh dns       # print DNS A records
+./scripts/deploy-aws.sh k3s       # install K3s + Rancher via AWS SSM
+./scripts/deploy-aws.sh helm        # helm upgrade (kubectl context required)
+./scripts/deploy-aws.sh verify
 ```
 
-Use TTL **300** during initial setup.
-
-## 4. Phase 3 — K3s and Rancher
-
-Connect to the instance (no SSH key required):
+**Connect to EC2** (no SSH key required):
 
 ```bash
-aws ssm start-session --target $(terraform output -raw ec2_instance_id)
+aws ssm start-session --target $(terraform -chdir=terraform output -raw ec2_instance_id)
 ```
 
-### Install K3s
+**DNS** — point A records at the Elastic IP:
+
+```text
+api.<domain>     → <ELASTIC_IP>
+auth.<domain>    → <ELASTIC_IP>
+app.<domain>     → <ELASTIC_IP>
+rancher.<domain> → <ELASTIC_IP>
+```
+
+### Option B — Any other cloud provider
+
+Skip Terraform. Create a VM matching the [hardware table](#hardware-requirements), then on the VM:
 
 ```bash
+# K3s
 curl -sfL https://get.k3s.io | sh -
-sudo k3s kubectl get nodes
-```
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+sudo kubectl get nodes
 
-### Install Helm
-
-```bash
+# Helm
 curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
 chmod 700 get_helm.sh && ./get_helm.sh
-```
 
-### Install Rancher + cert-manager
-
-Ensure `rancher.<your-domain>` DNS points to the Elastic IP first.
-
-```bash
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-
+# cert-manager + Rancher
 helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
-helm repo add jetstack https://charts.jetstack.io
-helm repo update
-
+helm repo add jetstack https://charts.jetstack.io && helm repo update
 helm install cert-manager jetstack/cert-manager \
   --namespace cert-manager --create-namespace --set installCRDs=true
-
 helm install rancher rancher-latest/rancher \
   --namespace cattle-system --create-namespace \
-  --set hostname=rancher.authengine.org \
-  --set replicas=1 \
-  --set bootstrapPassword=admin
+  --set hostname=rancher.<your-domain> \
+  --set replicas=1 --set bootstrapPassword=admin
 ```
 
-Open `https://rancher.authengine.org`, log in, and change the bootstrap password.
+Copy `kubeconfig` to your laptop, create DNS A records, then:
 
 ```bash
-./deploy/auth-engine-deploy.sh k3s-guide   # prints these steps
+cd auth-engine-infra
+cp helm/authengine/values.yaml helm/authengine/prod-values.yaml
+# Edit secrets + seed.* — do not commit
+
+export HELM_VALUES_FILE=helm/authengine/prod-values.yaml
+export HELM_NAMESPACE=authengine
+./scripts/deploy-aws.sh helm
 ```
 
-## 5. Phase 4 — Helm install (full stack)
+---
 
-On your laptop (with `kubeconfig` copied from the EC2 K3s cluster, or via Rancher UI):
+## Local VM (laptop + Cloudflare Tunnel)
+
+Use this when the cluster runs on your **laptop** (Multipass) and has **no public IP**. **Cloudflare Tunnel** exposes `api`, `auth`, `app`, and `rancher` without port forwarding.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    users["Users"]
+    cf["Cloudflare Tunnel"]
+    vm["Multipass VM"]
+    k3s["K3s Traefik :80"]
+    apps["AuthEngine workloads"]
+
+    users --> cf --> vm --> k3s --> apps
+```
+
+### Fast path
 
 ```bash
-cd auth-engine-infra/helm/authengine
+cd auth-engine-infra
+
+# Edit domain + secrets first
+cp helm/authengine/values.yaml helm/authengine/local-values.yaml
+
+./scripts/deploy-local-vm.sh all
 ```
 
-Create a production override file (do **not** commit secrets):
+Or step by step:
+
+```bash
+./scripts/deploy-local-vm.sh vm-create    # Multipass: 4 CPU, 8G RAM, 40G disk
+./scripts/deploy-local-vm.sh sync         # copy helm chart into VM
+./scripts/deploy-local-vm.sh k3s          # K3s + Rancher on VM
+./scripts/deploy-local-vm.sh cloudflare   # tunnel setup guide
+./scripts/deploy-local-vm.sh helm         # deploy AuthEngine
+./scripts/deploy-local-vm.sh verify
+```
+
+### Cloudflare Tunnel (summary)
+
+On the VM:
+
+```bash
+multipass shell authengine-lab
+
+# Install cloudflared
+sudo apt update && sudo apt install -y cloudflared
+
+# Login + create tunnel
+cloudflared tunnel login
+cloudflared tunnel create authengine
+
+# Route DNS (repeat per hostname)
+cloudflared tunnel route dns authengine api.<your-domain>
+cloudflared tunnel route dns authengine auth.<your-domain>
+cloudflared tunnel route dns authengine app.<your-domain>
+cloudflared tunnel route dns authengine rancher.<your-domain>
+```
+
+Config template: `auth-engine-infra/scripts/templates/cloudflared-config.yml.tpl` — point all hostnames to `http://127.0.0.1:80` (K3s Traefik). TLS terminates at Cloudflare.
+
+```bash
+sudo cloudflared --config /etc/cloudflared/config.yml tunnel run
+```
+
+### Multipass defaults
+
+| Variable | Default |
+|----------|---------|
+| `VM_NAME` | `authengine-lab` |
+| `VM_CPUS` | `4` |
+| `VM_MEM` | `8G` |
+| `VM_DISK` | `40G` |
+| `HELM_NAMESPACE` | `auth-dev` |
+
+---
+
+## Helm install (both paths)
+
+Create a values override (never commit secrets):
 
 ```yaml
-# prod-values.yaml
+# prod-values.yaml or local-values.yaml
 global:
-  domain: authengine.org
+  domain: "your-domain.com"
 
 secrets:
   postgresPassword: "<openssl rand -base64 24>"
@@ -190,212 +257,115 @@ secrets:
 
 seed:
   enabled: true
-  superadminEmail: "you@example.com"
+  runOnUpgrade: true          # set true to re-run seed on helm upgrade
+  superadminEmail: "admin@your-domain.com"
   superadminPassword: "<strong-password>"
 ```
 
-Install:
-
 ```bash
-helm install authengine . \
-  --namespace authengine \
+helm upgrade --install authengine helm/authengine \
+  --namespace auth-dev \
   --create-namespace \
-  -f prod-values.yaml
+  -f helm/authengine/local-values.yaml \
+  --set seed.enabled=true \
+  --set seed.runOnUpgrade=true
 ```
 
-This deploys:
-
-- Postgres, MongoDB, Redis (StatefulSets with persistent volumes)
-- API and dashboard Deployments (pull from Docker Hub)
-- Ingress rules for `api`, `auth`, and `app`
-- A **post-install migrate Job** (`auth-engine migrate`)
-- An optional **seed Job** when `seed.enabled: true` (roles + super admin + platform config)
+After install:
 
 ```bash
-./deploy/auth-engine-deploy.sh helm-install   # guided install with checks
+kubectl get pods,jobs -n auth-dev
+kubectl logs -n auth-dev job/authengine-seed-<revision>
+kubectl logs -n auth-dev job/authengine-migrate
 ```
 
-### After Helm install
+The chart deploys:
+
+- Postgres, MongoDB, Redis (StatefulSets)
+- API + dashboard (Deployments)
+- Ingress for `api`, `auth`, `app`
+- **migrate Job** on install/upgrade
+- **seed Job** when `seed.enabled=true` (platform tenant + super admin + auth config)
+
+---
+
+## Seed data
+
+The API does **not** seed on startup. The Helm seed Job runs `auth-engine-data all` (roles, super admin, platform auth config).
+
+| Method | Command |
+|--------|---------|
+| Helm (recommended) | `seed.enabled: true` + `helm upgrade` |
+| Re-run seed | `helm upgrade ... --set seed.runOnUpgrade=true` |
+| Manual | `cd auth-engine-data && uv run auth-engine-data all` |
+
+Default super admin (if using `local-values.yaml` example): check your `seed.superadminEmail` / `seed.superadminPassword` in values.
+
+Verify:
 
 ```bash
-kubectl -n authengine get pods
-kubectl -n authengine logs job/authengine-migrate
-kubectl -n authengine logs job/authengine-seed    # if seed enabled
-```
-
-## 6. Phase 5 — Seed data
-
-The API does **not** seed on startup. Run seeding **once** after the first successful migrate.
-
-### Option A — Helm seed Job (recommended for first deploy)
-
-Set in `prod-values.yaml`:
-
-```yaml
-seed:
-  enabled: true
-  superadminEmail: "admin@example.com"
-  superadminPassword: "ChangeThisStrongPassword123!"
-```
-
-Re-install or upgrade with that values file. The Job clones **auth-engine** + **auth-engine-data** and runs `auth-engine-data all`.
-
-### Option B — Manual (auth-engine-data)
-
-From a machine that can reach the cluster Postgres service:
-
-```bash
-cd auth-engine-data
-cp .env.example .env.local
-# POSTGRES_URL → in-cluster or port-forwarded URL
-# SECRET_KEY → same as Helm secrets.secretKey
-# SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD
-uv run auth-engine-data all
-```
-
-### Option C — Deploy script (SSM on EC2)
-
-```bash
-./deploy/auth-engine-deploy.sh k8s-seed
-```
-
-### Platform config (email, SMS, OAuth)
-
-Optional env vars in **auth-engine-data** `.env.example` — used by `auth-engine-data platform-config` or included in `all`:
-
-| Variable | Production note |
-|----------|-----------------|
-| `EMAIL_PROVIDER` | `resend` (recommended on K8s) |
-| `EMAIL_PROVIDER_API_KEY` | Resend API key |
-| `EMAIL_SENDER` | `noreply@authengine.org` |
-| `GOOGLE_*`, `AUTHENGINE_*` | Social login (after OAuth URIs registered) |
-
-After seeding, manage platform email/SMS/OAuth in the **dashboard** (Communications / Auth settings).
-
-## 7. Phase 6 — OAuth redirect URIs
-
-Register in each provider console:
-
-```text
-https://api.authengine.org/api/v1/auth/oauth/google/callback
-https://api.authengine.org/api/v1/auth/oauth/github/callback
-https://api.authengine.org/api/v1/auth/oauth/microsoft/callback
-https://app.authengine.org/oauth/authengine/callback
-```
-
-```bash
-./deploy/auth-engine-deploy.sh oauth
-```
-
-## 8. Phase 7 — CI/CD (build only)
-
-Merging to `main` in each app repo **builds and pushes** Docker images. There is **no automatic cluster deploy** — redeploy workloads after a new image lands on Docker Hub.
-
-### Pipeline (both app repos)
-
-| Step | Workflow | Trigger |
-|------|----------|---------|
-| 1 | `0-ci` — lint / typecheck / build | Push or PR to `main` |
-| 2 | `1-build-push` — push `:latest` to Docker Hub | After CI succeeds on `main` |
-| 3 | Manual redeploy | Rancher UI or `kubectl rollout restart` |
-
-**Secrets (both repos):** `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
-
-### auth-engine
-
-| Workflow | Purpose |
-|----------|---------|
-| auth-engine · Lint and Typecheck | CI |
-| auth-engine · Build and Push Docker Image | Push `DOCKERHUB_USERNAME/authengine:latest` |
-| auth-engine · Create Version Tag | Manual tag (`v1.0.0`) |
-| auth-engine · Create GitHub Release | Manual release |
-
-### auth-engine-dashboard
-
-| Workflow | Purpose |
-|----------|---------|
-| auth-engine-dashboard · Lint and Build | CI (bakes `NEXT_PUBLIC_*` at build time) |
-| auth-engine-dashboard · Build and Push Docker Image | Push `DOCKERHUB_USERNAME/authengine-dashboard:latest` |
-| auth-engine-dashboard · Create Version Tag | Manual tag |
-| auth-engine-dashboard · Create GitHub Release | Manual release |
-
-### Release workflow
-
-1. Merge to `main` → CI → image pushed to Docker Hub
-2. **API:** Rancher → Workloads → `api` → **Redeploy** (or `kubectl rollout restart deployment/api -n authengine`)
-3. **API releases:** run migrate in the pod: `kubectl exec -n authengine deployment/api -- auth-engine migrate`
-4. **Dashboard:** Rancher → `dashboard` → **Redeploy**
-
-```bash
-./deploy/auth-engine-deploy.sh cicd
-./deploy/auth-engine-deploy.sh k8s-migrate   # after API image update
-```
-
-## 9. Phase 8 — Documentation site (`docs.authengine.org`)
-
-Docs live in the **auth-engine-docs** repository, built by GitHub Actions, served on **GitHub Pages** — not from EC2.
-
-1. **auth-engine-docs** Settings → Pages → Source: **GitHub Actions**
-2. Run workflow **auth-engine-docs · Deploy docs** (`workflow_dispatch`)
-3. Custom domain: `docs.authengine.org` (see `docs/CNAME`)
-4. DNS: CNAME `docs` → `auth-engine.github.io`
-5. Enable **Enforce HTTPS** in Pages settings
-
-```bash
-./deploy/auth-engine-deploy.sh docs
-```
-
-## 10. Phase 9 — Production verification
-
-| Check | Command or URL |
-|-------|----------------|
-| API health | `curl https://api.authengine.org/api/v1/health` |
-| Swagger | https://api.authengine.org/docs |
-| OIDC discovery | `curl https://api.authengine.org/.well-known/openid-configuration` |
-| Dashboard login | https://app.authengine.org/login |
-| Rancher | https://rancher.authengine.org |
-| Docs site | https://docs.authengine.org |
-
-```bash
-./deploy/auth-engine-deploy.sh verify
+curl -s https://api.<domain>/api/v1/auth/auth-config | jq
+# Expected: tenant_id + allowed_methods: ["email_password"]
 ```
 
 ---
 
-## Reference — Local vs production
+## OAuth redirect URIs
 
-| Item | Local (`compose/docker-compose.yml`) | Production (Helm / K3s) |
-|------|--------------------------------------|-------------------------|
-| `APP_URL` | `http://localhost:3000` | `https://auth.authengine.org` |
-| `DASHBOARD_URL` | `http://localhost:3000` | `https://app.authengine.org` |
-| CORS | `http://localhost:3000` | `https://app.authengine.org` |
-| Databases | Postgres, Mongo, Redis in Compose | In-cluster StatefulSets |
-| Images | Build locally or pull | Pull from Docker Hub |
-| TLS | Optional | Ingress + cert-manager |
-| Deploy | `docker compose up` | Helm + Rancher redeploy |
+```text
+https://api.<domain>/api/v1/auth/oauth/google/callback
+https://api.<domain>/api/v1/auth/oauth/github/callback
+https://api.<domain>/api/v1/auth/oauth/microsoft/callback
+https://app.<domain>/oauth/authengine/callback
+```
 
-## Helper script commands
+---
 
-From `auth-engine-infra`:
+## CI/CD and upgrades
+
+Merging to `main` in `auth-engine` / `auth-engine-dashboard` builds Docker images. **Redeploy manually:**
 
 ```bash
-./deploy/auth-engine-deploy.sh plan          # Terraform plan
-./deploy/auth-engine-deploy.sh apply         # Terraform apply
-./deploy/auth-engine-deploy.sh dns           # DNS checklist
-./deploy/auth-engine-deploy.sh k3s-guide       # K3s + Rancher steps
-./deploy/auth-engine-deploy.sh helm-install  # Helm install guide
-./deploy/auth-engine-deploy.sh k8s-migrate    # Run migrate via kubectl (SSM)
-./deploy/auth-engine-deploy.sh k8s-seed       # Run seed Job via kubectl (SSM)
-./deploy/auth-engine-deploy.sh seed           # Local seed (compose dev)
-./deploy/auth-engine-deploy.sh cicd           # CI/CD checklist
-./deploy/auth-engine-deploy.sh verify         # Curl health endpoints
-./deploy/auth-engine-deploy.sh all            # Interactive walk-through
+kubectl rollout restart deployment/api deployment/dashboard -n auth-dev
+kubectl exec -n auth-dev deployment/api -- auth-engine migrate
 ```
+
+---
+
+## Verification checklist
+
+| Check | Command / URL |
+|-------|----------------|
+| API health | `curl https://api.<domain>/api/v1/health` |
+| Auth config | `curl https://api.<domain>/api/v1/auth/auth-config` |
+| Swagger | `https://api.<domain>/docs` |
+| Dashboard login | `https://app.<domain>/login` |
+| Rancher | `https://rancher.<domain>` |
+
+```bash
+./scripts/deploy-aws.sh verify
+# or
+./scripts/deploy-local-vm.sh verify
+```
+
+---
+
+## Local vs Kubernetes
+
+| Item | Docker Compose (`compose/`) | K3s + Helm |
+|------|----------------------------|------------|
+| Use case | Dev on laptop | Lab / production |
+| TLS | Optional | Ingress + cert-manager (cloud) or Cloudflare (local VM) |
+| Seed | `auth-engine-data all` manually | Helm seed Job |
+| Scripts | — | `deploy-local-vm.sh` / `deploy-aws.sh` |
+
+---
 
 ## Next
 
 | Step | Guide |
 |------|-------|
-| Previous — local setup | [Quick Start](quick-start.md) |
-| System design | [Architecture](architecture.md) |
-| Hardening | [Security Overview](security-overview.md) |
+| Local dev without K8s | [Quick Start](quick-start.md) |
+| Architecture | [Architecture](architecture.md) |
+| OAuth / OIDC | [OAuth2 / OIDC Guides](oauth2-oidc-guides.md) |
+| Security | [Security Overview](security-overview.md) |

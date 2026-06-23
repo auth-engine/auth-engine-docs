@@ -65,7 +65,7 @@ Follow this order based on your goal:
 |:----:|-------|--------------|
 | **1** | [Quick Start](quick-start.md) | First time — run the stack locally |
 | **2** | [Architecture](architecture.md) | Understand components and data flow |
-| **3** | [Deployment](deployment.md) | Ship to production on AWS |
+| **3** | [Deployment](deployment.md) | Ship to production (cloud VM or local VM + Cloudflare) |
 | **4** | [Security Overview](security-overview.md) | Harden tokens, sessions, and access |
 | **5** | [API Reference](api-reference.md) | Integrate with REST endpoints |
 | **6** | [OAuth2 / OIDC](oauth2-oidc-guides.md) | Social login or use AuthEngine as an IdP |
@@ -100,7 +100,9 @@ Follow this order based on your goal:
 |------------|---------|
 | [auth-engine](https://github.com/auth-engine/auth-engine) | Identity backend |
 | [auth-engine-dashboard](https://github.com/auth-engine/auth-engine-dashboard) | Admin dashboard |
-| [auth-engine-infra](https://github.com/auth-engine/auth-engine-infra) | Deployment and documentation |
+| [auth-engine-data](https://github.com/auth-engine/auth-engine-data) | Seed data and platform config |
+| [auth-engine-infra](https://github.com/auth-engine/auth-engine-infra) | Terraform, Helm, Compose, deploy scripts |
+| [auth-engine-docs](https://github.com/auth-engine/auth-engine-docs) | This documentation site |
 
 **Contributing:** [contributing.md](contributing.md) · **Security reports:** [security-policy.md](security-policy.md)
 
