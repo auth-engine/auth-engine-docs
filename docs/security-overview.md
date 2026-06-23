@@ -151,11 +151,11 @@ Security-relevant actions are appended to MongoDB `audit_logs` with actor, tenan
 
 | Control | Recommendation |
 |---------|----------------|
-| TLS | Terminate HTTPS at proxy; use `rediss://` for Redis |
+| TLS | Terminate HTTPS at Ingress; use in-cluster Redis with password |
 | CORS | Restrict `CORS_ORIGINS` to known dashboard origins |
 | SSH | Prefer SSM; restrict `allowed_ssh_cidr` or leave empty |
-| RDS | Security group allows Postgres only from EC2 |
-| Secrets on EC2 | File permissions `600` on `/opt/authengine/.env` |
+| Databases | In-cluster Postgres/Mongo/Redis — restrict network policies in K8s |
+| Secrets | Store in Kubernetes Secrets / Helm values (not in git) |
 
 ## 13. Service API keys
 
@@ -179,7 +179,7 @@ Security-relevant actions are appended to MongoDB `audit_logs` with actor, tenan
 - [ ] Issue per-service API keys with least privilege (tenant scope where possible)
 - [ ] Register exact OAuth redirect URIs in provider consoles
 - [ ] Disable unused OAuth providers (empty `CLIENT_ID`)
-- [ ] Review RDS backups and Atlas/Upstash access controls
+- [ ] Review persistent volume backups for Postgres/MongoDB and Redis access controls
 - [ ] Monitor audit logs for anomalous `platform.*` and `tenant.*` actions
 
 ## Next
