@@ -36,7 +36,7 @@ Deploy to GitHub Pages via `.github/workflows/docs-deploy.yml` (`workflow_dispat
 docs/
 ├── index.md                 # Platform overview & URLs
 ├── quick-start.md           # Run locally
-├── deployment.md            # Production on AWS
+├── deployment.md            # Production on AWS (K3s + Rancher + Helm)
 ├── architecture.md          # System design
 ├── security-overview.md     # Tokens, RBAC, hardening
 ├── api-reference.md         # REST endpoints

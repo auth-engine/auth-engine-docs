@@ -23,27 +23,29 @@ flowchart TB
         backend_svc["Backend services"]
     end
 
-    subgraph aws_infra ["AWS EC2 hybrid"]
-        nginx["nginx TLS"]
-        api_ctr["API container :8000"]
-        fe_ctr["Frontend container :3000"]
-        rds["RDS PostgreSQL"]
+    subgraph k8s ["K3s on AWS EC2"]
+        ingress["Ingress + cert-manager"]
+        api_ctr["API pod :8000"]
+        fe_ctr["Dashboard pod :3000"]
+        pg["Postgres StatefulSet"]
+        mongo["MongoDB StatefulSet"]
+        redis["Redis StatefulSet"]
     end
 
-    subgraph managed ["Managed services"]
-        upstash["Upstash Redis"]
-        atlas["Atlas MongoDB"]
+    subgraph external ["External"]
         hub["Docker Hub images"]
+        resend["Resend email"]
     end
 
-    browser --> nginx
-    rp --> nginx
-    backend_svc --> nginx
-    nginx --> api_ctr
-    nginx --> fe_ctr
-    api_ctr --> rds
-    api_ctr --> upstash
-    api_ctr --> atlas
+    browser --> ingress
+    rp --> ingress
+    backend_svc --> ingress
+    ingress --> api_ctr
+    ingress --> fe_ctr
+    api_ctr --> pg
+    api_ctr --> mongo
+    api_ctr --> redis
+    api_ctr --> resend
     hub --> api_ctr
     hub --> fe_ctr
 ```
@@ -54,7 +56,7 @@ flowchart TB
 |-----------|------------|----------------|
 | API service | `auth-engine` | Auth, RBAC, OIDC, tenant config, introspection |
 | Dashboard | `auth-engine-dashboard` | Platform/tenant admin UI, user self-service |
-| Infrastructure | `auth-engine-infra` | Terraform, Docker Compose, VPC, EC2, RDS, documentation |
+| Infrastructure | `auth-engine-infra` | Terraform (EC2), Helm chart (K3s), Compose (local dev) |
 
 ## 3. Backend internal architecture
 
@@ -156,9 +158,9 @@ Audit writes to MongoDB are fire-and-forget from the caller’s perspective.
 
 | Store | Technology | Contents |
 |-------|------------|----------|
-| PostgreSQL | RDS (prod) / Compose (local) | Users, roles, permissions, tenants, OAuth accounts, OIDC clients, API keys, configs |
-| Redis | Upstash (prod) | Sessions, token blacklist, OAuth state, magic-link JTIs, MFA pending, rate limits, WebAuthn challenges |
-| MongoDB | Atlas (prod) | Append-only `audit_logs` |
+| PostgreSQL | K8s StatefulSet (prod) / Compose (local) | Users, roles, permissions, tenants, OAuth accounts, OIDC clients, API keys, configs |
+| Redis | K8s StatefulSet (prod) / Compose (local) | Sessions, token blacklist, OAuth state, magic-link JTIs, MFA pending, rate limits, WebAuthn challenges |
+| MongoDB | K8s StatefulSet (prod) / Compose (local) | Append-only `audit_logs` |
 
 ### Redis key patterns
 
@@ -238,13 +240,13 @@ src/auth_engine/
 
 ## 10. Production topology
 
-Hybrid deployment on a single EC2 instance:
+Single-node **K3s** cluster on AWS EC2, managed via **Rancher**:
 
-- **nginx** terminates TLS for `api.authengine.org`, `auth.authengine.org`, and `app.authengine.org`
-- **API** and **frontend** run as Docker containers (`compose/docker-compose.prod.yml`)
-- **RDS**, **Upstash**, and **Atlas** are external managed services
+- **Ingress + cert-manager** terminates TLS for `api`, `auth`, and `app`
+- **API** and **dashboard** run as Kubernetes Deployments (images from Docker Hub)
+- **Postgres**, **MongoDB**, and **Redis** run as in-cluster StatefulSets (Helm chart)
 
-See [Deployment Guide](deployment.md) for DNS, `.env`, CI/CD, and nginx setup.
+See [Deployment Guide](deployment.md) for Terraform, Helm, seed data, and CI/CD.
 
 ## Next
 
