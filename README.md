@@ -1,74 +1,42 @@
 # auth-engine-docs
 
-Canonical documentation for **AuthEngine**, published at [docs.authengine.org](https://docs.authengine.org).
+Official documentation site for **AuthEngine**, built with MkDocs Material and published at [docs.authengine.org](https://docs.authengine.org).
 
-**Documentation:** [auth-engine-docs](https://github.com/auth-engine/auth-engine-docs) · published at [docs.authengine.org](https://docs.authengine.org)
+Covers local development, production deployment (K3s + Rancher + Helm), API reference, OAuth/OIDC integration, architecture, and security.
 
-| Guide | Link |
-|-------|------|
-| Quick Start | [quick-start.md](https://docs.authengine.org/quick-start/) |
-| OAuth2 / OIDC | [oauth2-oidc-guides.md](https://docs.authengine.org/oauth2-oidc-guides/) |
-| API Reference | [api-reference.md](https://docs.authengine.org/api-reference/) |
-| Architecture | [architecture.md](https://docs.authengine.org/architecture/) |
-| Deployment | [deployment.md](https://docs.authengine.org/deployment/) |
-| Security | [security-overview.md](https://docs.authengine.org/security-overview/) |
+## Documentation index
 
-## What this repository is
+| Section | Pages |
+|---------|-------|
+| **Getting started** | [Quick Start](https://docs.authengine.org/quick-start/) · [Deployment](https://docs.authengine.org/deployment/) |
+| **Platform** | [Architecture](https://docs.authengine.org/architecture/) · [Security](https://docs.authengine.org/security-overview/) |
+| **Integration** | [API Reference](https://docs.authengine.org/api-reference/) · [OAuth2 / OIDC](https://docs.authengine.org/oauth2-oidc-guides/) |
+| **Community** | [Contributing](https://docs.authengine.org/contributing/) · [Security Policy](https://docs.authengine.org/security-policy/) |
 
-MkDocs Material site containing all platform guides. Navigation is explicit in `mkdocs.yml` — new pages must be added to `nav:` manually (no auto-discovery). Built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/).
+## Development
 
-## Develop & deploy
-
-Requires Python **3.12+**.
+Edit and preview locally:
 
 ```bash
 cd auth-engine-docs
 python -m venv .venv-docs && source .venv-docs/bin/activate
 pip install -r requirements-docs.txt
-
-mkdocs serve                    # live preview at http://127.0.0.1:8000
-mkdocs build --strict           # static site in ./site
+mkdocs serve                  # http://127.0.0.1:8000
 ```
 
-Deploy to GitHub Pages via `.github/workflows/docs-deploy.yml` (`workflow_dispatch`). Custom domain: `docs/CNAME` → `docs.authengine.org`.
-
-```
-docs/
-├── index.md                 # Platform overview & URLs
-├── quick-start.md           # Run locally
-├── deployment.md            # Production on AWS (K3s + Rancher + Helm)
-├── architecture.md          # System design
-├── security-overview.md     # Tokens, RBAC, hardening
-├── api-reference.md         # REST endpoints
-├── oauth2-oidc-guides.md    # Social login & OIDC provider
-├── contributing.md
-├── security-policy.md
-├── about-author.md
-├── CNAME                    # docs.authengine.org
-└── stylesheets/extra.css
-mkdocs.yml                   # Site config & navigation
-overrides/                   # Theme overrides
-```
+Deploy to GitHub Pages: run workflow **docs-deploy** (`workflow_dispatch`).
 
 ## Production
 
-| Host | Role |
-|------|------|
-| [api.authengine.org](https://api.authengine.org) | API + Swagger |
-| [auth.authengine.org](https://auth.authengine.org) | OIDC / login UI |
-| [app.authengine.org](https://app.authengine.org) | Admin dashboard |
-| [docs.authengine.org](https://docs.authengine.org) | Documentation |
+Platform deployment (not the docs site itself):
 
-## Contributing
+| Path | Guide |
+|------|-------|
+| Local VM + Cloudflare Tunnel | [Deployment — local VM](https://docs.authengine.org/deployment/#local-vm-laptop--cloudflare-tunnel) |
+| AWS EC2 or any cloud VM | [Deployment — cloud VM](https://docs.authengine.org/deployment/#cloud-vm-aws-or-any-provider) |
 
-See [Contributing](https://docs.authengine.org/contributing/) or [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues per [Security Policy](https://docs.authengine.org/security-policy/) — not via public issues.
+Docs site hosting: GitHub Pages → `docs.authengine.org` (deploy via the **docs-deploy** workflow in this repo).
 
 ## Related repositories
 
-| Repository | Role |
-|------------|------|
-| [auth-engine](https://github.com/auth-engine/auth-engine) | FastAPI backend — IAM, OIDC, introspection |
-| [auth-engine-dashboard](https://github.com/auth-engine/auth-engine-dashboard) | Next.js admin dashboard |
-| [auth-engine-data](https://github.com/auth-engine/auth-engine-data) | Roles, permissions & super-admin seeding |
-| [auth-engine-infra](https://github.com/auth-engine/auth-engine-infra) | Terraform & Docker Compose |
-| [.github](https://github.com/auth-engine/.github) | Org profile, contributing & security policy |
+[auth-engine](https://github.com/auth-engine/auth-engine) · [auth-engine-dashboard](https://github.com/auth-engine/auth-engine-dashboard) · [auth-engine-data](https://github.com/auth-engine/auth-engine-data) · [auth-engine-infra](https://github.com/auth-engine/auth-engine-infra)

@@ -6,10 +6,17 @@ author: Niranjan
 
 # Quick Start
 
-Run the full stack locally from **`auth-engine-infra/compose/`**.
+Two ways to develop locally:
 
-!!! abstract "Steps"
-    **1** Configure `.env` → **2** Start Compose → **3** Run migrations → **4** Smoke test
+| Path | Best for |
+|------|----------|
+| **Docker Compose** (below) | Full stack with one command — API, dashboard, Postgres, MongoDB, Redis |
+| **Repos on host** ([§7](#7-run-without-docker-alternative)) | Backend or dashboard changes with hot reload |
+
+Compose lives in **`auth-engine-infra/compose/`**.
+
+!!! abstract "Compose steps"
+    **1** Configure `.env` → **2** `docker compose up -d` → **3** Migrate → **4** Seed → **5** Smoke test
 
 ---
 
@@ -29,14 +36,16 @@ cd auth-engine-infra/compose
 cp env.local.example .env
 ```
 
-Set `SECRET_KEY` and `JWT_SECRET_KEY` to unique 32+ character values (defaults work for local only).
+Set `SECRET_KEY` and `JWT_SECRET_KEY` to unique 32+ character values (`openssl rand -hex 32`). Defaults in `env.local.example` are for local use only.
+
+The compose `.env` holds **credentials and app settings** — database URLs are assembled by `docker-compose.yml` for the API container. Dashboard `NEXT_PUBLIC_*` vars are also set here.
 
 ---
 
 ## 3. Start the stack
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 | Service | URL |
@@ -45,7 +54,7 @@ docker compose up -d --build
 | Swagger | [http://localhost:8000/docs](http://localhost:8000/docs) |
 | Frontend | [http://localhost:3000](http://localhost:3000) |
 
-Images build from GitHub (`auth-engine/auth-engine`, `auth-engine/auth-engine-dashboard`) unless you override `AUTH_ENGINE_SRC` / `AUTH_ENGINE_FRONTEND_SRC` in `.env`.
+Images are pulled from Docker Hub (`qniranjan01/authengine`, `qniranjan01/authengine-dashboard`) as defined in `docker-compose.yml`.
 
 ---
 
@@ -71,8 +80,9 @@ uv run auth-engine-data all
 ## 5. Smoke test
 
 1. Call `GET /api/v1/health` in Swagger.
-2. Log in at [http://localhost:3000/login](http://localhost:3000/login) with super admin credentials.
-3. Platform routes (`/platform/*`) need a platform-scoped role; tenant routes need a tenant selected in the dashboard.
+2. Confirm auth config: `GET /api/v1/auth/auth-config` — returns `tenant_id` and `allowed_methods` (no `tenant_id` query needed for platform login).
+3. Log in at [http://localhost:3000/login](http://localhost:3000/login) with super admin credentials (`SUPERADMIN_*` from compose `.env` or `auth-engine-data/.env.local`).
+4. Platform routes (`/platform/*`) need a platform-scoped role; tenant routes need a tenant selected in the dashboard.
 
 ---
 
@@ -84,10 +94,11 @@ Platform social login (Google, AuthEngine OIDC) is configured on the **platform 
 
 ## 7. Run without Docker (alternative)
 
-**Backend** — cloned `auth-engine` repo:
+**Backend** — cloned `auth-engine` repo (Postgres, MongoDB, Redis running — use Compose DBs or install locally):
 
 ```bash
 uv sync
+cp .env.example .env.local
 auth-engine migrate
 auth-engine run
 ```
@@ -99,10 +110,7 @@ cp .env.example .env.local
 npm ci && npm run dev
 ```
 
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-```
+`NEXT_PUBLIC_PLATFORM_TENANT_ID` can stay empty — the login page calls `GET /auth/auth-config` and uses the returned `tenant_id`.
 
 ---
 

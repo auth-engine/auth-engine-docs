@@ -21,7 +21,9 @@ Thank you for your interest in AuthEngine. This guide applies to all repositorie
 |------------|---------------------|
 | [auth-engine](https://github.com/auth-engine/auth-engine) | FastAPI backend, IAM, OIDC, migrations |
 | [auth-engine-dashboard](https://github.com/auth-engine/auth-engine-dashboard) | Next.js admin UI |
-| [auth-engine-infra](https://github.com/auth-engine/auth-engine-infra) | Terraform, Docker Compose, **this documentation** |
+| [auth-engine-data](https://github.com/auth-engine/auth-engine-data) | Seed jobs — roles, super admin, platform auth config |
+| [auth-engine-infra](https://github.com/auth-engine/auth-engine-infra) | Terraform, Helm, Docker Compose, deploy scripts |
+| [auth-engine-docs](https://github.com/auth-engine/auth-engine-docs) | **This documentation** (MkDocs) |
 | [.github](https://github.com/auth-engine/.github) | Org profile, CONTRIBUTING, SECURITY |
 
 Canonical copy on GitHub: [CONTRIBUTING.md](https://github.com/auth-engine/.github/blob/main/CONTRIBUTING.md)
@@ -47,9 +49,11 @@ cd auth-engine-infra/compose
 cp env.local.example .env
 # Set SECRET_KEY and JWT_SECRET_KEY (openssl rand -hex 32)
 
-docker compose up -d --build
+docker compose up -d
 docker exec authengine-api auth-engine migrate
 ```
+
+Then seed once from `auth-engine-data` (see [Quick Start — seed](quick-start.md#4-run-migrations--seed-data)).
 
 | Service | URL |
 |---------|-----|
@@ -62,7 +66,7 @@ docker exec authengine-api auth-engine migrate
 git clone https://github.com/auth-engine/auth-engine.git
 cd auth-engine
 uv sync
-cp .env.example .env
+cp .env.example .env.local
 auth-engine migrate
 auth-engine run
 ```
